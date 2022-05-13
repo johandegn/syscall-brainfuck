@@ -277,7 +277,7 @@ bool optimize_change_ptr(instruction_st **head, instruction_st **tail, size_t re
     // Merge if possible
     if ((*head)->type == (*head+1)->type) {
         (*head)->value += (*head+1)->value;
-        *((*tail)++) = **head;
+        *(*tail)++ = **head;
         *head += 2; // one extra
         return true;
     }
@@ -304,7 +304,7 @@ bool optimize_change_val(instruction_st **head, instruction_st **tail, size_t re
     // Merge if possible
     if ((*head)->type == (*head+1)->type) {
         (*head)->value += (*head+1)->value;
-        *((*tail)++) = **head;
+        *(*tail)++ = **head;
         *head += 2; // one extra
         return true;
     }
@@ -361,7 +361,7 @@ bool optimize_set(instruction_st **head, instruction_st **tail, size_t remaining
 
     if ((*head+1)->type == ChangeVal) {
         (*head)->value += (*head+1)->value;
-        *((*tail)++) = **head;
+        *(*tail)++ = **head;
         *head += 2;
         return true;
     }
@@ -415,8 +415,7 @@ instruction_st * optimize_instructions(instruction_st *instructions, size_t *iam
         *iamount = ins_ptr_tail - instructions;
     } while (optimized);
 
-    // Bail out fast if empty or not changed
-    if (*iamount == 0 || ins_ptr_tail == ins_ptr_head)
+    if (*iamount == 0)
         return instructions;
     
     // Resize to free extra memory
@@ -429,21 +428,14 @@ instruction_st * optimize_instructions(instruction_st *instructions, size_t *iam
     return instructions;
 }
 
-void build(instruction_st *ins_ptr, size_t iamount) {
+void build(FILE *file, instruction_st *ins_ptr, size_t iamount) {
     instruction_st *ins_end = ins_ptr + iamount;
-
-    FILE *file;
-    file = fopen("out.s", "w");
-    if (file == NULL) {
-        printf("File error!\n");
-        exit(2);
-    }
 
     fprintf(file, "\tglobal _start\n");
     fprintf(file, "\tsection .text\n");
     fprintf(file, "\n_start:\n");
     fprintf(file, "\tsub rsp, 8\n"); // FIXME - missing stack allignment?? should this be 16??
-    fprintf(file, "\tmov r11, rsp\n");
+    fprintf(file, "\tmov rbx, rsp\n");
     fprintf(file, "\tmov r10, rsp\n");
     fprintf(file, "\tlea rsp, [rsp-%lu]\n", INITIAL_MEM * 8);
     fprintf(file, "\tmov qword rsi, 0\n\n");
@@ -462,14 +454,14 @@ void build(instruction_st *ins_ptr, size_t iamount) {
     while (ins_ptr < ins_end) {
         switch (ins_ptr->type) {
         case ChangeVal:
-            fprintf(file, "\tadd qword [r11], %ld\n", ins_ptr->value);
+            fprintf(file, "\tadd qword [rbx], %ld\n", ins_ptr->value);
             break;
         case ChangePtr:
-            fprintf(file, "\tsub r11, %ld\n", ins_ptr->value * 8);
+            fprintf(file, "\tsub rbx, %ld\n", ins_ptr->value * 8);
             break;
         case BeginLoop:
             fprintf(file, "B%lu:\n", ins_ptr->value);
-            fprintf(file, "\tcmp qword [r11], 0\n");
+            fprintf(file, "\tcmp qword [rbx], 0\n");
             fprintf(file, "\tje E%lu\n", ins_ptr->value);
             break;
         case EndLoop:
@@ -477,50 +469,48 @@ void build(instruction_st *ins_ptr, size_t iamount) {
             fprintf(file, "E%lu:\n", ins_ptr->value);
             break;
         case MemAddr:
-            fprintf(file, "\tmov rdi, [r11]\n");
+            fprintf(file, "\tmov rdi, [rbx]\n");
             fprintf(file, "\tneg rdi\n");
-            fprintf(file, "\tlea rdi, [r11+8*rdi]\n");
-            fprintf(file, "\tmov [r11], rdi\n");
+            fprintf(file, "\tlea rdi, [rbx+8*rdi]\n");
+            fprintf(file, "\tmov [rbx], rdi\n");
             break;
         case SysCall:
-            fprintf(file, "\tmov rax, [r11]\n");
-            fprintf(file, "\tmov rdi, [r11-8]\n");
-            fprintf(file, "\tmov rsi, [r11-16]\n");
-            fprintf(file, "\tmov rdx, [r11-24]\n");
-            fprintf(file, "\tmov r10, [r11-32]\n");
-            fprintf(file, "\tmov r8, [r11-40]\n");
-            fprintf(file, "\tmov r9, [r11-48]\n");
-            fprintf(file, "\tpush r11\n");
+            fprintf(file, "\tmov rax, [rbx]\n");
+            fprintf(file, "\tmov rdi, [rbx-8]\n");
+            fprintf(file, "\tmov rsi, [rbx-16]\n");
+            fprintf(file, "\tmov rdx, [rbx-24]\n");
+            fprintf(file, "\tmov r10, [rbx-32]\n");
+            fprintf(file, "\tmov r8, [rbx-40]\n");
+            fprintf(file, "\tmov r9, [rbx-48]\n");
             fprintf(file, "\tsyscall\n");
-            fprintf(file, "\tpop r11\n");
-            fprintf(file, "\tmov [r11+8], rax\n");
+            fprintf(file, "\tmov [rbx+8], rax\n");
             break;
         case Set:
-            fprintf(file, "\tmov qword [r11], %lu\n", ins_ptr->value);
+            fprintf(file, "\tmov qword [rbx], %lu\n", ins_ptr->value);
             break;
         case CondSetZero:
             size_t ctz = __builtin_ctz(ins_ptr->value); // Argument is not zero (would have been filtered out in parser)
-            fprintf(file, "\tcmp qword [r11], 0\n");
+            fprintf(file, "\tcmp qword [rbx], 0\n");
             fprintf(file, "\tje SZ%lu ; if zero, skip\n", csz_counter);
 
-            fprintf(file, "\tbsf rdi, [r11]\n");
+            fprintf(file, "\tbsf rdi, [rbx]\n");
             fprintf(file, "\tcmp qword rdi, %lu\n", ctz);
             fprintf(file, "\tjge SZ%lu \n", csz_counter);
 
             fprintf(file, "CSZ_LOOP%lu:\n", csz_counter);
-            fprintf(file, "\tadd qword [r11], %ld\n", ins_ptr->value);
+            fprintf(file, "\tadd qword [rbx], %ld\n", ins_ptr->value);
             fprintf(file, "\tjmp CSZ_LOOP%lu\n", csz_counter);
 
             fprintf(file, "SZ%lu:\n", csz_counter++);
-            fprintf(file, "\tmov qword [r11], 0\n");
+            fprintf(file, "\tmov qword [rbx], 0\n");
             break;
         case Multiply: // FIXME - signed vs unsigned multiplication..?
             fprintf(file, "\tmov rax, %lu\n", ins_ptr->value);
-            fprintf(file, "\timul rax, [r11]\n");
-            fprintf(file, "\tlea rdi, [r11+%lu]\n", -ins_ptr->value2 * 8);
+            fprintf(file, "\timul rax, [rbx]\n");
+            fprintf(file, "\tlea rdi, [rbx+%lu]\n", -ins_ptr->value2 * 8);
             fprintf(file, "\tadd [rdi], rax\n");
 
-            fprintf(file, "\tmov qword [r11], 0\n");
+            fprintf(file, "\tmov qword [rbx], 0\n");
             break;
         default:
             printf("Internal error!");
@@ -531,38 +521,32 @@ void build(instruction_st *ins_ptr, size_t iamount) {
     }
 
     fprintf(file, "\n\tmov rax, 60\n");
-    fprintf(file, "\tmov rdi, [r11]\n");
+    fprintf(file, "\tmov rdi, [rbx]\n");
     fprintf(file, "\tsyscall\n");
-
-
-    if (fclose(file) == -1) {
-        printf("Could not close destination file!\n");
-        exit(2);
-    }
 }
 
 int main(int argc, char **argv) {
     //argp_parse (&argp, argc, argv, 0, 0, &arguments);
     //argp_parse (&argp, argc, argv, 0, 0, 0);
-    
+
     if (argc != 2) {
         printf("Specify a file path as a single argument!\n");
         exit(1);
     }
     
 
-    FILE *file = fopen(argv[1], "r");
+    FILE *in_file = fopen(argv[1], "r");
 
-    if (file == NULL) {
+    if (in_file == NULL) {
         printf("File not found!\n");
         exit(2);
     }
 
     size_t token_amount;
     token_et *tokens;
-    tokens = tokenize(file, &token_amount);
+    tokens = tokenize(in_file, &token_amount);
 
-    if (fclose(file) == -1) {
+    if (fclose(in_file) == -1) {
         printf("Could not close source file!\n");
         exit(2);
     }
@@ -581,8 +565,19 @@ int main(int argc, char **argv) {
 
     instructions = optimize_instructions(instructions, &iamount);
     join_loop_ends(instructions, iamount, max_nesting);
-    
-    build(instructions, iamount);
+
+    FILE *out_file = fopen("out.s", "w");
+    if (out_file == NULL) {
+        printf("File error!\n");
+        exit(2);
+    }
+
+    build(out_file, instructions, iamount);
+
+    if (fclose(out_file) == -1) {
+        printf("Could not close destination file!\n");
+        exit(2);
+    }
 
     free(instructions);
 
