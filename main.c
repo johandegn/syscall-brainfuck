@@ -316,14 +316,19 @@ bool optimize_loop(instruction_st **head, instruction_st **tail, size_t remainin
     if (remaining < 2)
         return false;
     
+    // Check for simple loop
     if ((*head+1)->type == ChangeVal && (*head+2)->type == EndLoop) {
+        // Infinite loop
         if ((*head+1)->value == 0) {
-            return false; // infinite loop
+            return false;
         }
-        else if ((*head+1)->value == 1 || (*head+1)->value == -1) {
+
+        // Set 0
+        if ((*head+1)->value == 1 || (*head+1)->value == -1) {
             (*tail)->type = Set;
             (*tail)->value = 0;
-        } 
+        }
+        // Conditional set to 0
         else {
             (*tail)->type = CondSetZero;
             (*tail)->value = (*head+1)->value;
@@ -336,6 +341,7 @@ bool optimize_loop(instruction_st **head, instruction_st **tail, size_t remainin
     if (remaining < 5)
         return false;
 
+    // Multiplication
     if ((*head+5)->type == EndLoop) { // FIXME - generalize
         if ((*head+1)->type == ChangePtr 
             && (*head+2)->type == ChangeVal 
