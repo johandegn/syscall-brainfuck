@@ -181,23 +181,20 @@ bool loop_p2(instruction_st **head, instruction_st **tail, size_t remaining) {
         }
         
         if (lst->offset != 0 && lst->amount != 0) { // TODO - clean up this mess
-            /* FIXME - make work
-            mult_lst_st *l = lst;
-            bool existed = false;
+            mult_lst_st *l = lst->next;
+            bool found = false;
             while (l != NULL) {
                 if (l->offset == offset) {
                     l->amount += lst->amount;
                     lst->amount = 0;
                     lst->offset = 0;
-                    existed = true;
+                    found = true;
                     break;
                 }
                 l = l->next;
             }
-            if (!existed)
+            if (!found)
                 add(&lst, 0, 0);
-            */
-           add(&lst, 0, 0);
         }
     }
 
@@ -206,8 +203,31 @@ bool loop_p2(instruction_st **head, instruction_st **tail, size_t remaining) {
         return false;
     }
 
-    // Successful multiplication
+    // Remove list items with 0 amount
+    mult_lst_st *l, *r;
+    l = lst;
+    r = lst->next;
+    while (r != NULL) {
+        if (r->amount == 0) {
+            l->next = r->next;
+            delete(&r);
+            continue;
+        }
+        l = r;
+        r = r->next;
+    }
+
+    // offset should be 0, so remove first element of list
+    delete(&lst);
+
     *head = ptr + 1;
+
+    // Remove loop completely if redundant
+    if (is_empty(lst)) {
+        return true;
+    }
+
+    // Successful multiplication instruction
     (*tail)->type = Multiply;
     (*tail)->ptr = lst;
     (*tail)++;
